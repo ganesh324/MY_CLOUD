@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+.venv/
+env/
+venv/
+__pycache__/
+*.pyc
+
+# Build outputs
+app/frontend/dist/
+
+# Local data
+app/data/*.db
+app/data/*.db-journal
+
+# Logs
+*.log
+
+# Docker
+.dockerignore
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
