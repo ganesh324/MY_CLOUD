@@ -15,15 +15,17 @@ export default function App() {
   const [explorerFiles, setExplorerFiles] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // LOAD DASHBOARD (Recent & Favorites)
-  useEffect(() => {
-    fetch(`${API_URL}/dashboard/load`)
-      .then(res => res.json())
-      .then(data => setDashboardData(data));
-  }, []);
+  const fetchData = async () => {
+    try {
+      const res = await fetch(`${API_URL}/dashboard/load`);
+      const data = await res.json();
+      setDashboardData(data);
+    } catch (err) {
+      console.error("Dashboard load failed", err);
+    }
+  };
 
-  // LOAD EXPLORER / FILTERED VIEW
-  useEffect(() => {
+  const fetchExplorer = async () => {
     if (currentMenu === "home" && !activeCategory) {
       setCurrentPath("");
       return;
@@ -33,18 +35,39 @@ export default function App() {
     const categoryParam = activeCategory ? `&category=${activeCategory}` : "";
     const pathParam = currentPath ? `path=${currentPath}` : "path=";
     
-    fetch(`${API_URL}/files?${pathParam}${categoryParam}`)
-      .then(res => res.json())
-      .then(data => {
-        setExplorerFiles(data);
-        setLoading(false);
-      });
+    try {
+      const res = await fetch(`${API_URL}/files?${pathParam}${categoryParam}`);
+      const data = await res.json();
+      setExplorerFiles(data);
+    } catch (err) {
+      console.error("Explorer fetch failed", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    fetchExplorer();
   }, [currentPath, activeCategory, currentMenu]);
+
+  const handleSearch = (results) => {
+    if (!results) {
+      setCurrentMenu("home");
+      fetchData();
+      return;
+    }
+    setExplorerFiles(results);
+    setCurrentMenu("search");
+  };
 
   const handleCategorySelect = (category) => {
     setActiveCategory(category);
-    setCurrentMenu("all"); // Switch to file view when a category is selected
-    if (currentPath === "") setCurrentPath(""); // Ensure we are at root or current
+    setCurrentMenu("all");
+    if (currentPath === "") setCurrentPath("");
   };
 
   return (
@@ -62,7 +85,12 @@ export default function App() {
       />
       
       <div className="flex-1 flex flex-col min-w-0">
-        <Header username="Ganesh" />
+        <Header 
+          username="Ganesh" 
+          currentPath={currentPath} 
+          onRefresh={fetchData}
+          onSearch={handleSearch}
+        />
 
         <main className="flex-1 overflow-y-auto p-8 space-y-12">
           
@@ -82,9 +110,24 @@ export default function App() {
           {/* DASHBOARD VIEW (HOME) */}
           {currentMenu === "home" && !activeCategory && (
             <>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Storage Overview</h3>
+                <button 
+                  onClick={() => {
+                    fetch(`${API_URL}/dashboard/load`)
+                      .then(res => res.json())
+                      .then(data => setDashboardData(data));
+                  }}
+                  className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-blue-700 flex items-center gap-1"
+                >
+                  <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-pulse"></div>
+                  Refresh Live Stats
+                </button>
+              </div>
+              
               <AnalyticsRibbon stats={dashboardData.stats} onCategorySelect={handleCategorySelect} />
 
-              <section>
+              <section className="mt-12">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Favorite Folders</h3>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
                   {dashboardData.favorite_folders.map(folder => (
@@ -98,10 +141,10 @@ export default function App() {
                 </div>
               </section>
 
-              <section>
+              <section className="mt-12">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Recent Activity</h3>
                 <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
-                  <ActivityFeed files={dashboardData.recent_files} />
+                  <ActivityFeed files={dashboardData.recent_files} apiUrl={API_URL} />
                 </div>
               </section>
             </>
@@ -112,13 +155,17 @@ export default function App() {
             <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
               <div className="p-6 border-b border-slate-50 flex items-center justify-between">
                  <span className="font-bold text-slate-800">
-                    {currentMenu === 'favorites' ? 'Favorite Items' : currentMenu === 'shared' ? 'Shared with Me' : `Contents of ${currentPath || 'Root'}`}
+                    {currentMenu === 'search' ? 'Search Results' : currentMenu === 'favorites' ? 'Favorite Items' : currentMenu === 'shared' ? 'Shared with Me' : `Contents of ${currentPath || 'Root'}`}
                  </span>
               </div>
               <ActivityFeed
                 files={explorerFiles}
                 loading={loading}
-                onNavigate={(name) => setCurrentPath(currentPath === "" ? name : `${currentPath}/${name}`)}
+                apiUrl={API_URL}
+                onNavigate={(path) => {
+                  setCurrentPath(path);
+                  setCurrentMenu("all");
+                }}
               />
             </div>
           )}

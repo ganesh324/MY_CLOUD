@@ -1,6 +1,8 @@
 import os
 import subprocess
-from fastapi import FastAPI, Depends, HTTPException
+from datetime import datetime
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -180,10 +182,136 @@ def list_files(
     # Let's follow the "drill through" literally: show items in the path that match the category + folders.
     
     items = query.filter(models.FileMetadata.parent_path == path)\
-        .order_by(models.FileMetadata.name.asc())\
+        .order_by(models.FileMetadata.is_dir.desc(), models.FileMetadata.name.asc())\
         .all()
         
     return items
+
+@app.get("/search", response_model=List[schemas.FileResponse])
+def search_files(q: str, db: Session = Depends(database.get_db)):
+    """
+    Search for files by name across the entire drive using the database.
+    """
+    if len(q) < 2:
+        return []
+    
+    # Use ILIKE for case-insensitive search, prioritizing folders
+    results = db.query(models.FileMetadata)\
+        .filter(models.FileMetadata.name.ilike(f"%{q}%"))\
+        .order_by(models.FileMetadata.is_dir.desc(), models.FileMetadata.name.asc())\
+        .limit(100)\
+        .all()
+    return results
+
+@app.post("/files/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    path: str = Form(...),
+    db: Session = Depends(database.get_db)
+):
+    """
+    Upload a file to a specific path and index it in the DB.
+    """
+    full_path = os.path.join(path, file.filename)
+    
+    # Save to disk
+    with open(full_path, "wb") as buffer:
+        content = await file.read()
+        buffer.write(content)
+    
+    # Index in DB
+    stats = os.stat(full_path)
+    ext = os.path.splitext(file.filename)[1][1:].lower()
+    
+    new_file = models.FileMetadata(
+        path=full_path,
+        name=file.filename,
+        parent_path=path,
+        is_dir=False,
+        size=stats.st_size,
+        extension=ext,
+        modified_at=datetime.fromtimestamp(stats.st_mtime)
+    )
+    
+    db.merge(new_file) # Use merge to handle existing records
+    db.commit()
+    
+    return {"status": "success", "path": full_path}
+
+@app.post("/files/mkdir")
+async def create_directory(
+    name: str = Form(...),
+    path: str = Form(...),
+    db: Session = Depends(database.get_db)
+):
+    """
+    Create a new directory and index it.
+    """
+    full_path = os.path.join(path, name)
+    os.makedirs(full_path, exist_ok=True)
+    
+    # Index in DB
+    new_dir = models.FileMetadata(
+        path=full_path,
+        name=name,
+        parent_path=path,
+        is_dir=True,
+        size=0,
+        extension="",
+        modified_at=datetime.now()
+    )
+    
+    db.merge(new_dir)
+    db.commit()
+    
+    return {"status": "success", "path": full_path}
+
+from PIL import Image as PILImage
+
+# --- THUMBNAIL CACHE ---
+THUMBNAIL_DIR = "/app/data/thumbnails"
+os.makedirs(THUMBNAIL_DIR, exist_ok=True)
+
+@app.get("/thumbnails/{file_id}")
+async def get_thumbnail(file_id: int, db: Session = Depends(database.get_db)):
+    """
+    Generates or returns a cached thumbnail for images/videos.
+    """
+    file_record = db.query(models.FileMetadata).filter(models.FileMetadata.id == file_id).first()
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    thumb_path = os.path.join(THUMBNAIL_DIR, f"{file_id}.jpg")
+    
+    # If already cached, return it
+    if os.path.exists(thumb_path):
+        return FileResponse(thumb_path)
+
+    # Generate if not exists
+    try:
+        ext = file_record.extension.lower()
+        if ext in IMAGE_EXTENSIONS:
+            with PILImage.open(file_record.path) as img:
+                img.thumbnail((200, 200))
+                img.convert('RGB').save(thumb_path, "JPEG")
+        elif ext in VIDEO_EXTENSIONS:
+            # Use ffmpeg to extract a frame at 1s
+            subprocess.run([
+                "ffmpeg", "-i", file_record.path, 
+                "-ss", "00:00:01.000", "-vframes", "1", 
+                "-s", "200x200", "-y", thumb_path
+            ], capture_output=True)
+        else:
+            raise HTTPException(status_code=400, detail="Not a media file")
+            
+        if os.path.exists(thumb_path):
+            return FileResponse(thumb_path)
+        else:
+            raise HTTPException(status_code=500, detail="Thumbnail generation failed")
+            
+    except Exception as e:
+        print(f"Thumbnail error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- STATIC FILES (Frontend) ---
 # Mount the React build directory. We do this LAST so it doesn't shadow API routes.

@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     inotify-tools \
     findutils \
     coreutils \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
