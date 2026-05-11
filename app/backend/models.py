@@ -15,6 +15,7 @@ class FileMetadata(Base):
     mtime = Column(Float) # Modification time from shell is a float timestamp
     last_seen = Column(Integer)
     is_dir = Column(Boolean, default=False)
+    is_favorite = Column(Boolean, default=False, index=True)
     
     @property
     def filename(self):

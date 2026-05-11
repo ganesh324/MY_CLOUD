@@ -18,14 +18,14 @@ echo "Starting Backend..."
 docker run -d \
   --name mycloud_backend \
   -p 8001:8000 \
-  -e MOUNT_POINT=/mnt/storage \
+  -e MOUNT_POINT=/mnt/Drive1 \
   -e SCAN_SCRIPT=/app/scripts/nas_scan.sh \
   -e DATABASE_URL=sqlite:////app/data/nas_metadata.db \
   -v "$(pwd)/app/data:/app/data" \
   -v "$(pwd)/app/backend:/app/backend" \
   -v "$(pwd)/app/scripts:/app/scripts" \
   -v "$(pwd)/app/frontend:/app/frontend" \
-  -v "/mnt/Drive1:/mnt/storage" \
+  -v "/mnt/Drive1:/mnt/Drive1" \
   --restart unless-stopped \
   mycloud_backend
 
@@ -33,11 +33,11 @@ docker run -d \
 echo "Starting Watcher..."
 docker run -d \
   --name mycloud_watcher \
-  -e MOUNT_POINT=/mnt/storage \
+  -e MOUNT_POINT=/mnt/Drive1 \
   -e DATABASE_URL=sqlite:////app/data/nas_metadata.db \
   -v "$(pwd)/app/data:/app/data" \
   -v "$(pwd)/app/scripts:/app/scripts" \
-  -v "/mnt/Drive1:/mnt/storage" \
+  -v "/mnt/Drive1:/mnt/Drive1" \
   --restart unless-stopped \
   mycloud_backend \
   bash /app/scripts/nas_watch.sh

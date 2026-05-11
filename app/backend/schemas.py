@@ -11,6 +11,7 @@ class FileResponse(BaseModel):
     mtime: float
     last_seen: int
     is_dir: bool
+    is_favorite: bool = False
 
     @computed_field
     @property
@@ -20,7 +21,7 @@ class FileResponse(BaseModel):
     @computed_field
     @property
     def is_directory(self) -> bool:
-        return self.extension == ""
+        return self.is_dir
 
     class Config:
         from_attributes = True

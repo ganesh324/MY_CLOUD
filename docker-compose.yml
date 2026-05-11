@@ -7,12 +7,12 @@ services:
     ports:
       - "8001:8000"
     environment:
-      - MOUNT_POINT=/mnt/storage
+      - MOUNT_POINT=/mnt/Drive1
       - SCAN_SCRIPT=/app/scripts/nas_scan.sh
       - DATABASE_URL=sqlite:////app/data/nas_metadata.db
     volumes:
       - ./app/data:/app/data
-      - /mnt/Drive1:/mnt/storage
+      - /mnt/Drive1:/mnt/Drive1
     restart: unless-stopped
 
   watcher:
@@ -21,11 +21,11 @@ services:
       dockerfile: backend/Dockerfile
     command: ["bash", "/app/scripts/nas_watch.sh"]
     environment:
-      - MOUNT_POINT=/mnt/storage
+      - MOUNT_POINT=/mnt/Drive1
       - DATABASE_URL=sqlite:////app/data/nas_metadata.db
     volumes:
       - ./app/data:/app/data
-      - /mnt/Drive1:/mnt/storage
+      - /mnt/Drive1:/mnt/Drive1
     restart: unless-stopped
 
   frontend:

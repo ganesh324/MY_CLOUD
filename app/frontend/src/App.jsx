@@ -144,7 +144,7 @@ export default function App() {
               <section className="mt-12">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Recent Activity</h3>
                 <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
-                  <ActivityFeed files={dashboardData.recent_files} apiUrl={API_URL} />
+                  <ActivityFeed files={dashboardData.recent_files} apiUrl={API_URL} onRefresh={fetchData} />
                 </div>
               </section>
             </>
@@ -162,6 +162,7 @@ export default function App() {
                 files={explorerFiles}
                 loading={loading}
                 apiUrl={API_URL}
+                onRefresh={fetchExplorer}
                 onNavigate={(path) => {
                   setCurrentPath(path);
                   setCurrentMenu("all");

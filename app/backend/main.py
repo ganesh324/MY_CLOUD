@@ -122,10 +122,26 @@ def load_dashboard(db: Session = Depends(database.get_db)):
     path_list = summary.recent_file_ids.split(",") if (summary and summary.recent_file_ids) else []
     recent_files = db.query(models.FileMetadata).filter(models.FileMetadata.path.in_(path_list)).all()
 
+    # Favorites: Root Drive + user-selected favorites
     mount_point = os.getenv("MOUNT_POINT", "/mnt/Drive1")
-    favorites = db.query(models.FileMetadata)\
-        .filter(models.FileMetadata.parent_path == mount_point)\
-        .filter(models.FileMetadata.is_dir == True).all()
+    
+    # Start with a hardcoded "Root Drive" favorite
+    favorites = [{
+        "id": 0,
+        "path": mount_point,
+        "name": "Root Drive",
+        "parent_path": "",
+        "is_dir": True,
+        "is_favorite": True,
+        "extension": "",
+        "size": 0,
+        "mtime": 0,
+        "last_seen": 0
+    }]
+    
+    # Add user-selected favorites from DB
+    db_favs = db.query(models.FileMetadata).filter(models.FileMetadata.is_favorite == True).all()
+    favorites.extend(db_favs)
 
     return {
         "recent_files": recent_files,
@@ -265,6 +281,78 @@ async def create_directory(
     db.commit()
     
     return {"status": "success", "path": full_path}
+
+@app.post("/files/favorite")
+async def toggle_favorite(
+    path: str = Form(...),
+    db: Session = Depends(database.get_db)
+):
+    """
+    Toggle the favorite status of a file or folder.
+    """
+    item = db.query(models.FileMetadata).filter(models.FileMetadata.path == path).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    item.is_favorite = not item.is_favorite
+    db.commit()
+    
+    return {"status": "success", "is_favorite": item.is_favorite}
+
+@app.delete("/files/delete")
+async def delete_file(
+    path: str,
+    db: Session = Depends(database.get_db)
+):
+    """
+    Delete a file or folder from disk and remove it from the DB.
+    """
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Path not found on disk")
+
+    # Delete from disk
+    if os.path.isdir(path):
+        import shutil
+        shutil.rmtree(path)
+        # Remove folder and all children from DB
+        db.query(models.FileMetadata).filter(
+            models.FileMetadata.path.like(f"{path}%")
+        ).delete(synchronize_session=False)
+    else:
+        os.remove(path)
+        db.query(models.FileMetadata).filter(models.FileMetadata.path == path).delete()
+
+    db.commit()
+    return {"status": "success", "deleted": path}
+
+@app.post("/files/rename")
+async def rename_file(
+    path: str = Form(...),
+    new_name: str = Form(...),
+    db: Session = Depends(database.get_db)
+):
+    """
+    Rename a file or folder on disk and update the DB record.
+    """
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Path not found on disk")
+
+    parent = os.path.dirname(path)
+    new_path = os.path.join(parent, new_name)
+
+    if os.path.exists(new_path):
+        raise HTTPException(status_code=409, detail="A file with that name already exists")
+
+    os.rename(path, new_path)
+
+    # Update the DB record
+    item = db.query(models.FileMetadata).filter(models.FileMetadata.path == path).first()
+    if item:
+        item.path = new_path
+        item.name = new_name
+        db.commit()
+
+    return {"status": "success", "new_path": new_path}
 
 from PIL import Image as PILImage
 
