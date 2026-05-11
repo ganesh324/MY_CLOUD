@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { File, Folder, Star, MoreVertical, Trash2, Pencil, X } from 'lucide-react';
+import { File, Folder, Star, MoreVertical, Trash2, Pencil } from 'lucide-react';
 
 function ContextMenu({ x, y, file, onClose, onDelete, onRename, onToggleFavorite }) {
     const ref = useRef(null);
@@ -44,16 +44,17 @@ function ContextMenu({ x, y, file, onClose, onDelete, onRename, onToggleFavorite
     );
 }
 
-export default function ActivityFeed({ files = [], loading, onNavigate, onRefresh, apiUrl }) {
-    const [contextMenu, setContextMenu] = useState(null); // { x, y, file }
+export default function ActivityFeed({ files = [], loading, onNavigate, onRefresh, apiUrl, viewMode = 'list' }) {
+    const [contextMenu, setContextMenu] = useState(null);
 
     if (loading) return <div className="p-12 text-center text-slate-400 font-bold animate-pulse">Scanning Drive...</div>;
 
+    const IMAGE_EXTS = ["jpg", "jpeg", "png", "gif", "webp", "bmp"];
+    const VIDEO_EXTS = ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm"];
+
     const isPreviewable = (file) => {
-        if (!file || !file.extension) return false;
-        const imgExts = ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"];
-        const vidExts = ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm"];
-        return imgExts.includes(file.extension.toLowerCase()) || vidExts.includes(file.extension.toLowerCase());
+        if (!file?.extension) return false;
+        return [...IMAGE_EXTS, ...VIDEO_EXTS].includes(file.extension.toLowerCase());
     };
 
     const handleContextMenu = (e, file) => {
@@ -68,67 +69,110 @@ export default function ActivityFeed({ files = [], loading, onNavigate, onRefres
         try {
             await fetch(`${apiUrl}/files/favorite`, { method: 'POST', body: formData });
             if (onRefresh) onRefresh();
-        } catch (err) {
-            console.error('Favorite toggle failed', err);
-        }
+        } catch (err) { console.error('Favorite toggle failed', err); }
     };
 
     const handleDelete = async (file) => {
         const label = file.is_directory ? 'folder' : 'file';
-        const confirmed = window.confirm(
-            `⚠️ Delete "${file.name}"?\n\nThis will permanently delete this ${label}${file.is_directory ? ' and ALL its contents' : ''} from the drive. This cannot be undone.`
-        );
-        if (!confirmed) return;
-
+        if (!window.confirm(`⚠️ Delete "${file.name}"?\n\nThis will permanently delete this ${label}${file.is_directory ? ' and ALL its contents' : ''} from the drive.`)) return;
         try {
-            const res = await fetch(`${apiUrl}/files/delete?path=${encodeURIComponent(file.path)}`, {
-                method: 'DELETE'
-            });
-            if (res.ok) {
-                if (onRefresh) onRefresh();
-            } else {
-                const err = await res.json();
-                alert(`Error: ${err.detail}`);
-            }
-        } catch (err) {
-            console.error('Delete failed', err);
-        }
+            const res = await fetch(`${apiUrl}/files/delete?path=${encodeURIComponent(file.path)}`, { method: 'DELETE' });
+            if (res.ok) { if (onRefresh) onRefresh(); }
+            else { const err = await res.json(); alert(`Error: ${err.detail}`); }
+        } catch (err) { console.error('Delete failed', err); }
     };
 
     const handleRename = async (file) => {
         const newName = window.prompt(`Rename "${file.name}" to:`, file.name);
         if (!newName || newName === file.name) return;
-
         const formData = new FormData();
         formData.append('path', file.path);
         formData.append('new_name', newName);
         try {
             const res = await fetch(`${apiUrl}/files/rename`, { method: 'POST', body: formData });
-            if (res.ok) {
-                if (onRefresh) onRefresh();
-            } else {
-                const err = await res.json();
-                alert(`Error: ${err.detail}`);
-            }
-        } catch (err) {
-            console.error('Rename failed', err);
-        }
+            if (res.ok) { if (onRefresh) onRefresh(); }
+            else { const err = await res.json(); alert(`Error: ${err.detail}`); }
+        } catch (err) { console.error('Rename failed', err); }
     };
 
+    const empty = (
+        <div className="p-12 text-center text-slate-400 text-sm font-medium">No items found</div>
+    );
+
+    // ─── GRID VIEW ─────────────────────────────────────────────────────────────
+    if (viewMode === 'grid') {
+        if (!files || files.length === 0) return empty;
+        return (
+            <>
+                {contextMenu && (
+                    <ContextMenu x={contextMenu.x} y={contextMenu.y} file={contextMenu.file}
+                        onClose={() => setContextMenu(null)} onDelete={handleDelete}
+                        onRename={handleRename} onToggleFavorite={handleToggleFavorite} />
+                )}
+                <div className="p-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+                    {files.map((file) => (
+                        <div
+                            key={file.id}
+                            onClick={() => file.is_directory && onNavigate && onNavigate(file.path)}
+                            onContextMenu={(e) => handleContextMenu(e, file)}
+                            className={`group relative flex flex-col items-center gap-2 p-3 rounded-2xl border border-transparent hover:border-slate-100 hover:bg-slate-50 transition-all ${file.is_directory ? 'cursor-pointer' : 'cursor-default'}`}
+                        >
+                            {/* Thumbnail / Icon */}
+                            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center overflow-hidden flex-shrink-0 ${file.is_directory ? 'bg-blue-50' : 'bg-slate-100'}`}>
+                                {file.is_directory ? (
+                                    <Folder size={32} className="text-blue-500" />
+                                ) : isPreviewable(file) ? (
+                                    <>
+                                        <img
+                                            src={`${apiUrl}/thumbnails/${file.id}`}
+                                            alt=""
+                                            className="w-full h-full object-cover rounded-2xl"
+                                            onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
+                                        />
+                                        <div style={{ display: 'none' }} className="w-full h-full items-center justify-center">
+                                            <File size={28} className="text-slate-400" />
+                                        </div>
+                                    </>
+                                ) : (
+                                    <File size={28} className="text-slate-400" />
+                                )}
+                            </div>
+
+                            {/* Name */}
+                            <span className="text-xs font-semibold text-slate-600 text-center truncate w-full" title={file.name}>
+                                {file.name}
+                            </span>
+
+                            {/* Action buttons — top-right overlay on hover */}
+                            <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleToggleFavorite(file); }}
+                                    className={`p-1 rounded-lg transition-all hover:bg-amber-50 ${file.is_favorite ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400'}`}
+                                >
+                                    <Star size={13} className={file.is_favorite ? 'fill-amber-400' : ''} />
+                                </button>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleContextMenu(e, file); }}
+                                    className="p-1 rounded-lg text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-all"
+                                >
+                                    <MoreVertical size={13} />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </>
+        );
+    }
+
+    // ─── LIST VIEW ─────────────────────────────────────────────────────────────
     return (
         <>
             {contextMenu && (
-                <ContextMenu
-                    x={contextMenu.x}
-                    y={contextMenu.y}
-                    file={contextMenu.file}
-                    onClose={() => setContextMenu(null)}
-                    onDelete={handleDelete}
-                    onRename={handleRename}
-                    onToggleFavorite={handleToggleFavorite}
-                />
+                <ContextMenu x={contextMenu.x} y={contextMenu.y} file={contextMenu.file}
+                    onClose={() => setContextMenu(null)} onDelete={handleDelete}
+                    onRename={handleRename} onToggleFavorite={handleToggleFavorite} />
             )}
-
             <table className="w-full text-left">
                 <tbody className="divide-y divide-slate-50">
                     {files && files.map((file) => (
@@ -138,7 +182,6 @@ export default function ActivityFeed({ files = [], loading, onNavigate, onRefres
                             onContextMenu={(e) => handleContextMenu(e, file)}
                             className={`group hover:bg-slate-50 transition-all ${file.is_directory ? 'cursor-pointer' : 'cursor-default'}`}
                         >
-                            {/* Icon + Name */}
                             <td className="px-8 py-4 flex items-center gap-4">
                                 <div className={`overflow-hidden rounded-xl w-10 h-10 flex-shrink-0 flex items-center justify-center ${file.is_directory ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
                                     {file.is_directory ? (
@@ -164,24 +207,17 @@ export default function ActivityFeed({ files = [], loading, onNavigate, onRefres
                                     {!file.is_directory && <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{file.extension}</span>}
                                 </div>
                             </td>
-
-                            {/* Actions */}
                             <td className="px-6 py-4 text-right">
                                 <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    {/* Star / Favorite toggle */}
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleToggleFavorite(file); }}
                                         className={`p-2 rounded-xl transition-all hover:bg-amber-50 ${file.is_favorite ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400'}`}
-                                        title={file.is_favorite ? 'Remove from Favorites' : 'Add to Favorites'}
                                     >
                                         <Star size={16} className={file.is_favorite ? 'fill-amber-400' : ''} />
                                     </button>
-
-                                    {/* Context menu (...) */}
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleContextMenu(e, file); }}
                                         className="p-2 rounded-xl text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-all"
-                                        title="More options"
                                     >
                                         <MoreVertical size={16} />
                                     </button>
@@ -190,11 +226,7 @@ export default function ActivityFeed({ files = [], loading, onNavigate, onRefres
                         </tr>
                     ))}
                     {(!files || files.length === 0) && (
-                        <tr>
-                            <td colSpan="2" className="px-8 py-12 text-center text-slate-400 text-sm font-medium">
-                                No items found
-                            </td>
-                        </tr>
+                        <tr><td colSpan="2">{empty}</td></tr>
                     )}
                 </tbody>
             </table>

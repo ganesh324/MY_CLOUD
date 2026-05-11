@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { LayoutList, LayoutGrid } from 'lucide-react';
 import API_URL from './config';
 import Sidebar from './components/layout/Sidebar';
 import Header from './components/layout/Header';
@@ -14,6 +15,7 @@ export default function App() {
   const [dashboardData, setDashboardData] = useState({ recent_files: [], favorite_folders: [], stats: {} });
   const [explorerFiles, setExplorerFiles] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'grid'
 
   const fetchData = async () => {
     try {
@@ -153,15 +155,42 @@ export default function App() {
           {/* EXPLORER / ALL FILES VIEW */}
           {(currentMenu !== "home" || activeCategory) && (
             <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
-              <div className="p-6 border-b border-slate-50 flex items-center justify-between">
-                 <span className="font-bold text-slate-800">
-                    {currentMenu === 'search' ? 'Search Results' : currentMenu === 'favorites' ? 'Favorite Items' : currentMenu === 'shared' ? 'Shared with Me' : `Contents of ${currentPath || 'Root'}`}
-                 </span>
+              <div className="px-8 py-4 border-b border-slate-50 flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    {currentMenu === 'search' ? 'Search Results' : currentMenu === 'favorites' ? 'Favorites' : currentMenu === 'shared' ? 'Shared' : 'Drive'}
+                  </span>
+                  <span className="font-bold text-slate-800 text-sm mt-0.5 truncate max-w-lg">
+                    {currentPath
+                      ? currentPath.replace('/mnt/Drive1', '').replace(/^\//, '') || 'Drive1'
+                      : 'Drive1'
+                    }
+                  </span>
+                </div>
+
+                {/* View Mode Toggle */}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                    title="List view"
+                  >
+                    <LayoutList size={16} />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                    title="Grid view"
+                  >
+                    <LayoutGrid size={16} />
+                  </button>
+                </div>
               </div>
               <ActivityFeed
                 files={explorerFiles}
                 loading={loading}
                 apiUrl={API_URL}
+                viewMode={viewMode}
                 onRefresh={fetchExplorer}
                 onNavigate={(path) => {
                   setCurrentPath(path);
