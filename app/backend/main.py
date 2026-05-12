@@ -1,6 +1,6 @@
 import os
 import subprocess
-from datetime import datetime
+import time
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,8 +9,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
 from . import models, database, schemas
-
-from . import models, database
 from .database import engine
 
 # Create tables if they don't exist
@@ -239,6 +237,7 @@ async def upload_file(
     stats = os.stat(full_path)
     ext = os.path.splitext(file.filename)[1][1:].lower()
     
+    ts = float(stats.st_mtime)
     new_file = models.FileMetadata(
         path=full_path,
         name=file.filename,
@@ -246,7 +245,8 @@ async def upload_file(
         is_dir=False,
         size=stats.st_size,
         extension=ext,
-        modified_at=datetime.fromtimestamp(stats.st_mtime)
+        mtime=ts,
+        last_seen=int(time.time()),
     )
     
     db.merge(new_file) # Use merge to handle existing records
@@ -263,23 +263,40 @@ async def create_directory(
     """
     Create a new directory and index it.
     """
-    full_path = os.path.join(path, name)
-    os.makedirs(full_path, exist_ok=True)
-    
-    # Index in DB
+    name = (name or "").strip()
+    if not name or "/" in name or "\\" in name or name in (".", ".."):
+        raise HTTPException(status_code=400, detail="Invalid folder name")
+
+    mount_point = os.getenv("MOUNT_POINT", "/mnt/Drive1")
+    parent = path.rstrip("/") or mount_point
+    if not parent.startswith(mount_point):
+        parent = mount_point
+
+    full_path = os.path.join(parent, name)
+    if not full_path.startswith(mount_point):
+        raise HTTPException(status_code=400, detail="Path must stay under storage root")
+
+    now_ts = time.time()
+    try:
+        os.makedirs(full_path, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Could not create folder: {e}")
+
+    st = os.stat(full_path)
     new_dir = models.FileMetadata(
         path=full_path,
         name=name,
-        parent_path=path,
+        parent_path=parent,
         is_dir=True,
         size=0,
         extension="",
-        modified_at=datetime.now()
+        mtime=float(st.st_mtime),
+        last_seen=int(now_ts),
     )
-    
+
     db.merge(new_dir)
     db.commit()
-    
+
     return {"status": "success", "path": full_path}
 
 @app.post("/files/favorite")
@@ -401,10 +418,12 @@ async def get_thumbnail(file_id: int, db: Session = Depends(database.get_db)):
         print(f"Thumbnail error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- STATIC FILES (Frontend) ---
-# Mount the React build directory. We do this LAST so it doesn't shadow API routes.
-app.mount("/", StaticFiles(directory="/app/frontend/dist", html=True), name="static")
-
 @app.get("/health")
 def health_check():
     return {"status": "online", "storage_root": os.getenv("MOUNT_POINT", "/mnt/Drive1")}
+
+
+# Optional bundled SPA (e.g. production image). API-only containers skip this.
+_frontend_dist = os.getenv("FRONTEND_DIST", "/app/frontend/dist")
+if os.path.isdir(_frontend_dist):
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="static")

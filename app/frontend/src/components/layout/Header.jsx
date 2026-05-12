@@ -1,6 +1,15 @@
 import React, { useRef } from 'react';
 import { Search, Plus, User, Menu, ShieldCheck } from 'lucide-react';
-import API_URL from '../../config';
+import API_URL, { STORAGE_ROOT } from '../../config';
+
+async function readErrorDetail(res) {
+    try {
+        const j = await res.json();
+        return typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail ?? j);
+    } catch {
+        return res.statusText || `HTTP ${res.status}`;
+    }
+}
 
 export default function Header({ username, currentPath, onRefresh, onSearch }) {
     const fileInputRef = useRef(null);
@@ -27,16 +36,21 @@ export default function Header({ username, currentPath, onRefresh, onSearch }) {
 
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('path', currentPath || '/mnt/storage');
+        formData.append('path', currentPath || STORAGE_ROOT);
 
         try {
             const res = await fetch(`${API_URL}/files/upload`, {
                 method: 'POST',
                 body: formData
             });
-            if (res.ok) onRefresh();
+            if (!res.ok) {
+                alert(await readErrorDetail(res));
+                return;
+            }
+            onRefresh();
         } catch (err) {
             console.error("Upload failed", err);
+            alert(err?.message || 'Upload failed');
         }
     };
 
@@ -46,16 +60,21 @@ export default function Header({ username, currentPath, onRefresh, onSearch }) {
 
         const formData = new FormData();
         formData.append('name', name);
-        formData.append('path', currentPath || '/mnt/storage');
+        formData.append('path', currentPath || STORAGE_ROOT);
 
         try {
             const res = await fetch(`${API_URL}/files/mkdir`, {
                 method: 'POST',
                 body: formData
             });
-            if (res.ok) onRefresh();
+            if (!res.ok) {
+                alert(await readErrorDetail(res));
+                return;
+            }
+            onRefresh();
         } catch (err) {
             console.error("Mkdir failed", err);
+            alert(err?.message || 'Could not create folder (check API URL and that the backend is running)');
         }
     };
 

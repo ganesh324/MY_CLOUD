@@ -90,7 +90,12 @@ export default function App() {
         <Header 
           username="Ganesh" 
           currentPath={currentPath} 
-          onRefresh={fetchData}
+          onRefresh={async () => {
+            await fetchData();
+            if (!(currentMenu === 'home' && !activeCategory)) {
+              await fetchExplorer();
+            }
+          }}
           onSearch={handleSearch}
         />
 
