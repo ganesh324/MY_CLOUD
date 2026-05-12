@@ -1,7 +1,8 @@
+import mimetypes
 import os
 import subprocess
 import time
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -376,6 +377,43 @@ from PIL import Image as PILImage
 # --- THUMBNAIL CACHE ---
 THUMBNAIL_DIR = "/app/data/thumbnails"
 os.makedirs(THUMBNAIL_DIR, exist_ok=True)
+
+
+@app.get("/files/raw/{file_id}")
+def get_raw_file(
+    file_id: int,
+    download: bool = Query(False, description="If true, send as attachment (download)."),
+    db: Session = Depends(database.get_db),
+):
+    """
+    Stream a file from disk. PDFs default to inline (browser viewer); other types
+    default to attachment unless download=1 is set (then always attachment).
+    """
+    record = db.query(models.FileMetadata).filter(models.FileMetadata.id == file_id).first()
+    if not record or record.is_dir:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    mount_point = os.getenv("MOUNT_POINT", "/mnt/Drive1")
+    disk_path = record.path
+    if not disk_path.startswith(mount_point):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not os.path.isfile(disk_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    media_type, _ = mimetypes.guess_type(record.name)
+    if not media_type:
+        media_type = "application/octet-stream"
+
+    ext = (record.extension or "").lower()
+    inline = ext == "pdf" and not download
+
+    return FileResponse(
+        disk_path,
+        media_type=media_type,
+        filename=record.name,
+        content_disposition_type="inline" if inline else "attachment",
+    )
+
 
 @app.get("/thumbnails/{file_id}")
 async def get_thumbnail(file_id: int, db: Session = Depends(database.get_db)):

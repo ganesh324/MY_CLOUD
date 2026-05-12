@@ -1,7 +1,34 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { File, Folder, Star, MoreVertical, Trash2, Pencil } from 'lucide-react';
+import { File, Folder, Star, MoreVertical, Trash2, Pencil, Download, ExternalLink } from 'lucide-react';
 
-function ContextMenu({ x, y, file, onClose, onDelete, onRename, onToggleFavorite }) {
+/** API may send only `is_dir`; extension may include a leading dot or be empty. */
+function isFolder(file) {
+    return Boolean(file?.is_directory ?? file?.is_dir);
+}
+
+function normExt(file) {
+    let e = String(file?.extension ?? '').toLowerCase().replace(/^\./, '');
+    if (e) return e;
+    const name = String(file?.name ?? '').toLowerCase();
+    const dot = name.lastIndexOf('.');
+    return dot >= 0 ? name.slice(dot + 1) : '';
+}
+
+function isPdfFile(file) {
+    return !isFolder(file) && normExt(file) === 'pdf';
+}
+
+function ContextMenu({
+    x,
+    y,
+    file,
+    onClose,
+    onDelete,
+    onRename,
+    onToggleFavorite,
+    onOpenPdf,
+    onDownloadFile,
+}) {
     const ref = useRef(null);
 
     useEffect(() => {
@@ -25,6 +52,24 @@ function ContextMenu({ x, y, file, onClose, onDelete, onRename, onToggleFavorite
                 <Star size={15} className={file.is_favorite ? 'fill-amber-400 text-amber-400' : 'text-slate-400'} />
                 {file.is_favorite ? 'Remove from Favorites' : 'Add to Favorites'}
             </button>
+            {isPdfFile(file) && onOpenPdf && (
+                <button
+                    onClick={() => { onOpenPdf(file); onClose(); }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                    <ExternalLink size={15} className="text-slate-400" />
+                    Open PDF
+                </button>
+            )}
+            {!isFolder(file) && onDownloadFile && (
+                <button
+                    onClick={() => { onDownloadFile(file); onClose(); }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                    <Download size={15} className="text-slate-400" />
+                    Download
+                </button>
+            )}
             <button
                 onClick={() => { onRename(file); onClose(); }}
                 className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
@@ -46,6 +91,24 @@ function ContextMenu({ x, y, file, onClose, onDelete, onRename, onToggleFavorite
 
 export default function ActivityFeed({ files = [], loading, onNavigate, onRefresh, apiUrl, viewMode = 'list' }) {
     const [contextMenu, setContextMenu] = useState(null);
+
+    const rawFileUrl = (file, download) => {
+        const q = download ? '?download=1' : '';
+        return `${apiUrl}/files/raw/${file.id}${q}`;
+    };
+
+    const handleOpenPdf = (file) => {
+        window.open(rawFileUrl(file, false), '_blank', 'noopener,noreferrer');
+    };
+
+    const handleDownloadFile = (file) => {
+        const a = document.createElement('a');
+        a.href = rawFileUrl(file, true);
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    };
 
     if (loading) return <div className="p-12 text-center text-slate-400 font-bold animate-pulse">Scanning Drive...</div>;
 
@@ -73,8 +136,8 @@ export default function ActivityFeed({ files = [], loading, onNavigate, onRefres
     };
 
     const handleDelete = async (file) => {
-        const label = file.is_directory ? 'folder' : 'file';
-        if (!window.confirm(`⚠️ Delete "${file.name}"?\n\nThis will permanently delete this ${label}${file.is_directory ? ' and ALL its contents' : ''} from the drive.`)) return;
+        const label = isFolder(file) ? 'folder' : 'file';
+        if (!window.confirm(`⚠️ Delete "${file.name}"?\n\nThis will permanently delete this ${label}${isFolder(file) ? ' and ALL its contents' : ''} from the drive.`)) return;
         try {
             const res = await fetch(`${apiUrl}/files/delete?path=${encodeURIComponent(file.path)}`, { method: 'DELETE' });
             if (res.ok) { if (onRefresh) onRefresh(); }
@@ -107,19 +170,20 @@ export default function ActivityFeed({ files = [], loading, onNavigate, onRefres
                 {contextMenu && (
                     <ContextMenu x={contextMenu.x} y={contextMenu.y} file={contextMenu.file}
                         onClose={() => setContextMenu(null)} onDelete={handleDelete}
-                        onRename={handleRename} onToggleFavorite={handleToggleFavorite} />
+                        onRename={handleRename} onToggleFavorite={handleToggleFavorite}
+                        onOpenPdf={handleOpenPdf} onDownloadFile={handleDownloadFile} />
                 )}
                 <div className="p-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
                     {files.map((file) => (
                         <div
                             key={file.id}
-                            onClick={() => file.is_directory && onNavigate && onNavigate(file.path)}
+                            onClick={() => isFolder(file) && onNavigate && onNavigate(file.path)}
                             onContextMenu={(e) => handleContextMenu(e, file)}
-                            className={`group relative flex flex-col items-center gap-2 p-3 rounded-2xl border border-transparent hover:border-slate-100 hover:bg-slate-50 transition-all ${file.is_directory ? 'cursor-pointer' : 'cursor-default'}`}
+                            className={`group relative flex flex-col items-center gap-2 p-3 rounded-2xl border border-transparent hover:border-slate-100 hover:bg-slate-50 transition-all ${isFolder(file) ? 'cursor-pointer' : 'cursor-default'}`}
                         >
                             {/* Thumbnail / Icon */}
-                            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center overflow-hidden flex-shrink-0 ${file.is_directory ? 'bg-blue-50' : 'bg-slate-100'}`}>
-                                {file.is_directory ? (
+                            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center overflow-hidden flex-shrink-0 ${isFolder(file) ? 'bg-blue-50' : 'bg-slate-100'}`}>
+                                {isFolder(file) ? (
                                     <Folder size={32} className="text-blue-500" />
                                 ) : isPreviewable(file) ? (
                                     <>
@@ -151,6 +215,26 @@ export default function ActivityFeed({ files = [], loading, onNavigate, onRefres
                                 >
                                     <Star size={13} className={file.is_favorite ? 'fill-amber-400' : ''} />
                                 </button>
+                                {isPdfFile(file) && (
+                                    <button
+                                        type="button"
+                                        title="Open PDF"
+                                        onClick={(e) => { e.stopPropagation(); handleOpenPdf(file); }}
+                                        className="p-1 rounded-lg text-slate-300 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                                    >
+                                        <ExternalLink size={13} />
+                                    </button>
+                                )}
+                                {!isFolder(file) && (
+                                    <button
+                                        type="button"
+                                        title="Download"
+                                        onClick={(e) => { e.stopPropagation(); handleDownloadFile(file); }}
+                                        className="p-1 rounded-lg text-slate-300 hover:text-slate-700 hover:bg-slate-100 transition-all"
+                                    >
+                                        <Download size={13} />
+                                    </button>
+                                )}
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handleContextMenu(e, file); }}
                                     className="p-1 rounded-lg text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-all"
@@ -171,20 +255,21 @@ export default function ActivityFeed({ files = [], loading, onNavigate, onRefres
             {contextMenu && (
                 <ContextMenu x={contextMenu.x} y={contextMenu.y} file={contextMenu.file}
                     onClose={() => setContextMenu(null)} onDelete={handleDelete}
-                    onRename={handleRename} onToggleFavorite={handleToggleFavorite} />
+                    onRename={handleRename} onToggleFavorite={handleToggleFavorite}
+                    onOpenPdf={handleOpenPdf} onDownloadFile={handleDownloadFile} />
             )}
             <table className="w-full text-left">
                 <tbody className="divide-y divide-slate-50">
                     {files && files.map((file) => (
                         <tr
                             key={file.id}
-                            onClick={() => file.is_directory && onNavigate && onNavigate(file.path)}
+                            onClick={() => isFolder(file) && onNavigate && onNavigate(file.path)}
                             onContextMenu={(e) => handleContextMenu(e, file)}
-                            className={`group hover:bg-slate-50 transition-all ${file.is_directory ? 'cursor-pointer' : 'cursor-default'}`}
+                            className={`group hover:bg-slate-50 transition-all ${isFolder(file) ? 'cursor-pointer' : 'cursor-default'}`}
                         >
                             <td className="px-8 py-4 flex items-center gap-4">
-                                <div className={`overflow-hidden rounded-xl w-10 h-10 flex-shrink-0 flex items-center justify-center ${file.is_directory ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
-                                    {file.is_directory ? (
+                                <div className={`overflow-hidden rounded-xl w-10 h-10 flex-shrink-0 flex items-center justify-center ${isFolder(file) ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
+                                    {isFolder(file) ? (
                                         <Folder size={18} />
                                     ) : isPreviewable(file) ? (
                                         <>
@@ -204,7 +289,7 @@ export default function ActivityFeed({ files = [], loading, onNavigate, onRefres
                                 </div>
                                 <div className="flex flex-col min-w-0">
                                     <span className="font-semibold text-slate-700 text-sm truncate">{file.name}</span>
-                                    {!file.is_directory && <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{file.extension}</span>}
+                                    {!isFolder(file) && <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{file.extension}</span>}
                                 </div>
                             </td>
                             <td className="px-6 py-4 text-right">
@@ -215,6 +300,26 @@ export default function ActivityFeed({ files = [], loading, onNavigate, onRefres
                                     >
                                         <Star size={16} className={file.is_favorite ? 'fill-amber-400' : ''} />
                                     </button>
+                                    {isPdfFile(file) && (
+                                        <button
+                                            type="button"
+                                            title="Open PDF"
+                                            onClick={(e) => { e.stopPropagation(); handleOpenPdf(file); }}
+                                            className="p-2 rounded-xl text-slate-300 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                                        >
+                                            <ExternalLink size={16} />
+                                        </button>
+                                    )}
+                                    {!isFolder(file) && (
+                                        <button
+                                            type="button"
+                                            title="Download"
+                                            onClick={(e) => { e.stopPropagation(); handleDownloadFile(file); }}
+                                            className="p-2 rounded-xl text-slate-300 hover:text-slate-700 hover:bg-slate-100 transition-all"
+                                        >
+                                            <Download size={16} />
+                                        </button>
+                                    )}
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleContextMenu(e, file); }}
                                         className="p-2 rounded-xl text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-all"
